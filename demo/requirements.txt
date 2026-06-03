@@ -1,0 +1,4 @@
+# Demo project dependencies. The plugin itself is installed separately
+# (e.g. `uv pip install -e ".[dev]"` from the repo root).
+Django>=5.0
+faker>=25.0
