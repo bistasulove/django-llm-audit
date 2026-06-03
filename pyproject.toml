@@ -47,9 +47,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sulavrajbista/django-llm-audit"
-Repository = "https://github.com/sulavrajbista/django-llm-audit"
-Changelog = "https://github.com/sulavrajbista/django-llm-audit/blob/master/CHANGELOG.md"
+Homepage = "https://github.com/bistasulove/django-llm-audit"
+Repository = "https://github.com/bistasulove/django-llm-audit"
+Changelog = "https://github.com/bistasulove/django-llm-audit/blob/master/CHANGELOG.md"
 
 [tool.hatch.version]
 path = "llm_audit/__init__.py"

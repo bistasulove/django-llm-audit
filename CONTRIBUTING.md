@@ -6,7 +6,7 @@ vehicle — see [`CLAUDE.md`](CLAUDE.md) for the full architecture and roadmap.
 ## Development setup
 
 ```bash
-git clone https://github.com/sulavrajbista/django-llm-audit
+git clone https://github.com/bistasulove/django-llm-audit
 cd django-llm-audit
 
 uv venv --python 3.12
