@@ -7,7 +7,13 @@ It is excluded from the published PyPI package.
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load secrets (e.g. ANTHROPIC_API_KEY) from a repo-root .env before they are read
+# below. BASE_DIR is the demo/ dir, so the repo root is one level up.
+load_dotenv(BASE_DIR.parent / ".env")
 
 SECRET_KEY = "django-insecure-demo-key-not-for-production"
 DEBUG = True
@@ -76,7 +82,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LLM_AUDIT = {
     "BACKEND": "llm_audit.backends.anthropic.AnthropicBackend",
     "API_KEY": os.environ.get("ANTHROPIC_API_KEY", ""),
-    "MODEL": "claude-opus-4-5",
+    "MODEL": "claude-haiku-4-5-20251001",
     "MAX_TOKENS": 1024,
     "CHUNK_TOKEN_THRESHOLD": 3000,
     "DEFAULT_RECORD_LIMIT": 50,

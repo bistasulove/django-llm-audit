@@ -1,15 +1,20 @@
-"""Tests for the audit_model management command. Full coverage arrives in M6."""
+"""Tests for the audit_model command. Full coverage (via MockBackend) arrives in M6.
 
-from io import StringIO
+The test settings deliberately have no ``store`` app, so these M1 smoke tests exercise
+the command's registration and model-resolution path without ever calling the LLM.
+"""
 
+import pytest
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 
-def test_audit_model_command_registers_and_runs():
-    out = StringIO()
-    # The stub command should run without error and announce it is not yet implemented.
-    call_command("audit_model", stdout=out)
-    assert "not implemented yet" in out.getvalue()
+def test_audit_model_raises_clean_error_for_unknown_model():
+    # The command's default target is store.Order, which is absent from the test
+    # settings — so resolution should fail with a CommandError, not a traceback, and
+    # without reaching the Anthropic backend.
+    with pytest.raises(CommandError, match="Could not resolve model"):
+        call_command("audit_model")
 
 
 def test_conf_defaults():

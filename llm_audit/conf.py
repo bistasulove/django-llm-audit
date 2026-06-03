@@ -10,7 +10,7 @@ from django.conf import settings
 
 #: Default values applied when a key is absent from ``settings.LLM_AUDIT``.
 DEFAULTS = {
-    "MODEL": "claude-opus-4-5",
+    "MODEL": "claude-haiku-4-5-20251001",
     "MAX_TOKENS": 1024,
     "CHUNK_TOKEN_THRESHOLD": 3000,
     "DEFAULT_RECORD_LIMIT": 50,

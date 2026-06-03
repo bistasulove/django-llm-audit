@@ -42,6 +42,9 @@ coverage.xml
 .ruff_cache/
 .mypy_cache/
 
+# Local notes
+scratchpad.md
+
 # OS / editor
 .DS_Store
 .idea/
