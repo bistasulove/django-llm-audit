@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **M3 — Streaming output**
+  - `audit_model --stream` prints the final report token-by-token as it arrives instead
+    of all at once. After the stream ends it prints an estimated token tally
+    (`~N tokens received`) to build intuition for response size.
+  - `AnthropicBackend.stream()` — a generator over Anthropic's streaming Messages API
+    (`client.messages.stream(...).text_stream`), mirroring `complete()`'s error handling.
+  - In a multi-chunk run, only the final reduce call streams; the per-chunk map calls
+    stay blocking, because the reduce step needs each chunk summary's full text first.
+
 - **M2 — Token-aware chunking**
   - `chunker.py` — `chunk_records()` packs records greedily into chunks that each stay
     under `CHUNK_TOKEN_THRESHOLD`, plus `estimate_tokens()` (the `len(text) // 4`
@@ -51,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **M3** — `summarizer.summarize()` gained a `stream` flag and now funnels every run
+  through a single terminal backend call (the stream-vs-complete decision point); the old
+  `_summarize_chunk` helper became `_build_chunk_prompt` (prompt construction only, no
+  backend call).
 - **M2** — `audit_model` now hands off to `summarizer.summarize` instead of serializing and
   calling the backend inline; large record sets are handled transparently. `--limit` is now
   a safety cap rather than the token constraint.

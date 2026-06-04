@@ -11,11 +11,12 @@
 Django model and returns intelligent summaries, trend analysis, and anomaly reports —
 entirely from the terminal via a management command.
 
-> **Status:** 🚧 Early development — milestone **M2 (token-aware chunking)** is functional.
-> The `audit_model` command produces a real summary today via the Anthropic backend, and
-> now handles large datasets by chunking them and summarizing map-reduce style. The full
-> documentation lands in milestone M7. See [`CLAUDE.md`](CLAUDE.md) for the roadmap and
-> [`CHANGELOG.md`](CHANGELOG.md) for what has shipped.
+> **Status:** 🚧 Early development — milestone **M3 (streaming output)** is functional.
+> The `audit_model` command produces a real summary today via the Anthropic backend,
+> handles large datasets by chunking them and summarizing map-reduce style, and can stream
+> the report token-by-token with `--stream`. The full documentation lands in milestone M7.
+> See [`CLAUDE.md`](CLAUDE.md) for the roadmap and [`CHANGELOG.md`](CHANGELOG.md) for what
+> has shipped.
 
 ## Why
 
@@ -48,9 +49,12 @@ LLM_AUDIT = {
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 python manage.py audit_model --app store --model Order --limit 50
+
+# stream the report token-by-token as it is generated
+python manage.py audit_model --app store --model Order --limit 50 --stream
 ```
 
-## What works today (M2)
+## What works today (M3)
 
 The command resolves a model, serializes up to `--limit` records to JSON, splits them into
 token-safe chunks, and asks the LLM for a structured plain-text summary (headline,
@@ -59,14 +63,18 @@ summarized **map-reduce style**: each chunk is summarized on its own, then those
 summaries are combined into one final report. Small datasets that fit in a single chunk
 skip the reduce step and cost just one call.
 
-| Flag | Status in M2 |
+With `--stream`, the final report prints token-by-token as it is generated, followed by an
+estimated token tally. In a multi-chunk run only the final combined report streams — the
+per-chunk summaries must complete in full first, since they feed the combine step.
+
+| Flag | Status in M3 |
 |------|--------------|
 | `--app`, `--model` | ✅ honored (defaults to `store.Order`) |
 | `--limit` | ✅ honored (default 50) — a safety cap; chunking handles the token budget |
-| `--fields`, `--filter`, `--output`, `--format`, `--stream`, `--backend` | ⏳ parsed but not yet wired (later milestones) |
+| `--stream` | ✅ honored — streams the final report token-by-token |
+| `--fields`, `--filter`, `--output`, `--format`, `--backend` | ⏳ parsed but not yet wired (later milestones) |
 
-Not yet implemented: streaming (M3), structured/JSON output (M4), and non-Anthropic
-backends (M5).
+Not yet implemented: structured/JSON output (M4) and non-Anthropic backends (M5).
 
 ## Configuration
 

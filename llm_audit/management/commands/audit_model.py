@@ -8,9 +8,12 @@ As of M2 the command resolves the model and pulls records, then hands off to
 ``summarizer.summarize``, which chunks the data (token-aware) and runs the map-reduce
 summarization. Serialization moved to ``serializer.py`` and chunking to ``chunker.py``.
 
-Still deferred: streaming (M3), structured output (M4), backend abstraction (M5). The
-``--fields``, ``--filter``, ``--output``, ``--format``, ``--stream``, and ``--backend``
-flags are parsed but not yet honored.
+M3 wires ``--stream``: when set, the final report is printed token-by-token as it
+arrives instead of all at once.
+
+Still deferred: structured output (M4), backend abstraction (M5). The ``--fields``,
+``--filter``, ``--output``, ``--format``, and ``--backend`` flags are parsed but not yet
+honored.
 """
 
 from django.apps import apps
@@ -18,6 +21,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from llm_audit import summarizer
 from llm_audit.backends.anthropic import AnthropicBackend
+from llm_audit.chunker import estimate_tokens
 from llm_audit.conf import audit_settings
 from llm_audit.exceptions import LLMBackendError
 
@@ -85,20 +89,49 @@ class Command(BaseCommand):
         # map-reduce summarization now all live behind summarizer.summarize. We inject the
         # backend and a notify callback so the library reports progress through our styled
         # stdout without importing Django or owning the terminal itself.
+        #
+        # When streaming, summarize() returns a generator and the real API call happens as
+        # we consume it below — so the consume loop must sit inside this try, since
+        # LLMBackendError can now surface mid-iteration rather than up front.
         try:
             backend = AnthropicBackend(
                 api_key=audit_settings.API_KEY,
                 model=audit_settings.MODEL,
                 max_tokens=audit_settings.MAX_TOKENS,
             )
-            summary = summarizer.summarize(
+            result = summarizer.summarize(
                 records,
                 model_name=model.__name__,
                 backend=backend,
                 token_threshold=audit_settings.CHUNK_TOKEN_THRESHOLD,
                 notify=lambda msg: self.stdout.write(self.style.NOTICE(msg)),
+                stream=options["stream"],
             )
+            if options["stream"]:
+                self._write_stream(result)
+            else:
+                self.stdout.write(result)
         except LLMBackendError as exc:
             raise CommandError(str(exc)) from None
 
-        self.stdout.write(summary)
+    def _write_stream(self, tokens):
+        """Print streamed report pieces as they arrive, then a token tally.
+
+        Each piece is written with ``ending=""`` (otherwise Django's OutputWrapper would
+        append a newline per write) and followed by an explicit ``flush()`` — without it
+        the terminal buffers output and the live, token-by-token effect is lost.
+
+        We count as the stream runs and print the tally once it finishes. A truly
+        in-place live counter would fight the report text for the same line, so showing
+        it at the end is the clean choice. The count is an estimate (the same ~4-chars-
+        per-token heuristic as the chunker), enough to build intuition for response size.
+        """
+        pieces = []
+        for token in tokens:
+            self.stdout.write(token, ending="")
+            self.stdout.flush()
+            pieces.append(token)
+        self.stdout.write("")  # final newline once the stream is exhausted
+
+        approx_tokens = estimate_tokens("".join(pieces))
+        self.stdout.write(self.style.NOTICE(f"(~{approx_tokens} tokens received)"))
