@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **M2 — Token-aware chunking**
+  - `chunker.py` — `chunk_records()` packs records greedily into chunks that each stay
+    under `CHUNK_TOKEN_THRESHOLD`, plus `estimate_tokens()` (the `len(text) // 4`
+    approximation). A single record larger than the threshold is emitted as its own chunk
+    rather than failing the run; a non-positive threshold raises `ChunkingError`.
+  - `serializer.py` — `serialize_records()` extracted from M1's inline `json.dumps`; pure,
+    Django-free, `default=str`, with a compact (`indent=None`) option for prompts.
+  - `summarizer.py` — `summarize()` orchestrates map-reduce: one call when the data fits a
+    single chunk, otherwise summarize each chunk (map) and combine the partials (reduce).
+    Takes an injected backend and an optional `notify` callback for progress/warnings.
+  - `prompts.py` — `build_meta_prompt()` + `META_SYSTEM_PROMPT` for the reduce step, shaped
+    to match the single-chunk output.
+  - Real unit tests for `chunker`, `serializer`, and `summarizer` (the last via a local
+    fake backend), replacing the M0 placeholders.
+
 - **M1 — Bare LLM call (no abstraction)**
   - `audit_model` command now produces a real LLM summary: resolves a model via
     `--app`/`--model` (defaulting to `store.Order`), serializes records inline with
@@ -24,11 +39,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Graceful handling of unknown models, empty querysets, and backend errors (all
     surface as clean `CommandError`s).
 
-### Changed
-
-- Default `LLM_AUDIT["MODEL"]` updated from the stale `claude-opus-4-5` to
-  `claude-haiku-4-5-20251001` (cheap/fast default; demo uses the same).
-
 - **M0 — Repo scaffolding & demo app**
   - Project packaging via `pyproject.toml` (hatchling build backend, dynamic version).
   - `llm_audit/` plugin package skeleton with stub modules and management command.
@@ -38,3 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `pytest` + `pytest-django` test scaffolding.
   - `pre-commit` with `ruff` and `black`.
   - GitHub Actions CI workflow.
+
+### Changed
+
+- **M2** — `audit_model` now hands off to `summarizer.summarize` instead of serializing and
+  calling the backend inline; large record sets are handled transparently. `--limit` is now
+  a safety cap rather than the token constraint.
+- **M1** — Default `LLM_AUDIT["MODEL"]` updated from the stale `claude-opus-4-5` to
+  `claude-haiku-4-5-20251001` (cheap/fast default; demo uses the same).

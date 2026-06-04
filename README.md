@@ -11,8 +11,9 @@
 Django model and returns intelligent summaries, trend analysis, and anomaly reports —
 entirely from the terminal via a management command.
 
-> **Status:** 🚧 Early development — milestone **M1 (bare LLM call)** is functional. The
-> `audit_model` command produces a real summary today via the Anthropic backend. The full
+> **Status:** 🚧 Early development — milestone **M2 (token-aware chunking)** is functional.
+> The `audit_model` command produces a real summary today via the Anthropic backend, and
+> now handles large datasets by chunking them and summarizing map-reduce style. The full
 > documentation lands in milestone M7. See [`CLAUDE.md`](CLAUDE.md) for the roadmap and
 > [`CHANGELOG.md`](CHANGELOG.md) for what has shipped.
 
@@ -20,7 +21,7 @@ entirely from the terminal via a management command.
 
 - Zero migrations, zero models, zero coupling to your code — it only *reads* your data.
 - Provider-agnostic by design: pluggable LLM backends _(Anthropic today; OpenAI and others land in M5)_.
-- Token-aware: chunks large datasets so they fit the model's context window _(arrives in M2)_.
+- Token-aware: chunks large datasets so they fit the model's context window, then summarizes map-reduce style.
 
 ## Install
 
@@ -49,20 +50,23 @@ export ANTHROPIC_API_KEY=sk-ant-...
 python manage.py audit_model --app store --model Order --limit 50
 ```
 
-## What works today (M1)
+## What works today (M2)
 
-The command resolves a model, serializes up to `--limit` records to JSON, and asks the
-LLM for a structured plain-text summary (headline, patterns, anomalies, assessment).
+The command resolves a model, serializes up to `--limit` records to JSON, splits them into
+token-safe chunks, and asks the LLM for a structured plain-text summary (headline,
+patterns, anomalies, assessment). Datasets that exceed `CHUNK_TOKEN_THRESHOLD` are
+summarized **map-reduce style**: each chunk is summarized on its own, then those partial
+summaries are combined into one final report. Small datasets that fit in a single chunk
+skip the reduce step and cost just one call.
 
-| Flag | Status in M1 |
+| Flag | Status in M2 |
 |------|--------------|
 | `--app`, `--model` | ✅ honored (defaults to `store.Order`) |
-| `--limit` | ✅ honored (default 50) |
+| `--limit` | ✅ honored (default 50) — a safety cap; chunking handles the token budget |
 | `--fields`, `--filter`, `--output`, `--format`, `--stream`, `--backend` | ⏳ parsed but not yet wired (later milestones) |
 
-Not yet implemented: token-aware chunking (M2), streaming (M3), structured/JSON output
-(M4), and non-Anthropic backends (M5). Large record sets are sent in a single request for
-now, so keep `--limit` modest.
+Not yet implemented: streaming (M3), structured/JSON output (M4), and non-Anthropic
+backends (M5).
 
 ## Configuration
 
@@ -75,7 +79,7 @@ settings accessor with these defaults:
 | `API_KEY` | _(required)_ | Your provider API key. |
 | `MODEL` | `claude-haiku-4-5-20251001` | LLM model id. |
 | `MAX_TOKENS` | `1024` | Max tokens in the LLM response. |
-| `CHUNK_TOKEN_THRESHOLD` | `3000` | Max tokens per chunk _(used from M2)_. |
+| `CHUNK_TOKEN_THRESHOLD` | `3000` | Max estimated tokens of records JSON per chunk. |
 | `DEFAULT_RECORD_LIMIT` | `50` | Default `--limit` when not specified. |
 
 ## Development

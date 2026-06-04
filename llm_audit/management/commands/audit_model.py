@@ -4,21 +4,22 @@ Implemented in M1. Resolves a Django model from ``--app``/``--model``, builds a
 queryset, serializes it, and produces an LLM summary. This is the plugin's primary
 surface area.
 
-M1 is deliberately bare: no chunking (M2), no streaming (M3), no structured output
-(M4), no backend abstraction (M5). Serialization is done inline here and extracted to
-``serializer.py`` in M2. The ``--fields``, ``--filter``, ``--output``, ``--format``,
-``--stream``, and ``--backend`` flags are parsed but not yet honored.
-"""
+As of M2 the command resolves the model and pulls records, then hands off to
+``summarizer.summarize``, which chunks the data (token-aware) and runs the map-reduce
+summarization. Serialization moved to ``serializer.py`` and chunking to ``chunker.py``.
 
-import json
+Still deferred: streaming (M3), structured output (M4), backend abstraction (M5). The
+``--fields``, ``--filter``, ``--output``, ``--format``, ``--stream``, and ``--backend``
+flags are parsed but not yet honored.
+"""
 
 from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
 
+from llm_audit import summarizer
 from llm_audit.backends.anthropic import AnthropicBackend
 from llm_audit.conf import audit_settings
 from llm_audit.exceptions import LLMBackendError
-from llm_audit.prompts import build_audit_prompt
 
 #: M1 defaults when --app/--model are omitted. The demo's flagship time-series model.
 DEFAULT_APP = "store"
@@ -72,22 +73,6 @@ class Command(BaseCommand):
             )
             return
 
-        # default=str is the crucial bit: Decimal, datetime, and UUID are not natively
-        # JSON-serializable. Without it, json.dumps raises TypeError on the first
-        # Decimal it meets. (Extracted to serializer.py in M2.)
-        records_json = json.dumps(records, default=str, indent=2)
-
-        # The keys of the first .values() dict are exactly the fields the model will
-        # see. Passing them in lets the prompt tell the LLM what it has — and lacks.
-        field_names = list(records[0].keys())
-
-        system_prompt, user_prompt = build_audit_prompt(
-            model_name=model.__name__,
-            record_count=len(records),
-            records_json=records_json,
-            field_names=field_names,
-        )
-
         self.stdout.write(
             self.style.NOTICE(
                 f"Auditing {len(records)} {model.__name__} record(s) with "
@@ -96,14 +81,23 @@ class Command(BaseCommand):
         )
 
         # Surface backend problems (missing key, missing SDK, API failure) as a clean
-        # one-line CommandError rather than a traceback.
+        # one-line CommandError rather than a traceback. Serialization, chunking, and the
+        # map-reduce summarization now all live behind summarizer.summarize. We inject the
+        # backend and a notify callback so the library reports progress through our styled
+        # stdout without importing Django or owning the terminal itself.
         try:
             backend = AnthropicBackend(
                 api_key=audit_settings.API_KEY,
                 model=audit_settings.MODEL,
                 max_tokens=audit_settings.MAX_TOKENS,
             )
-            summary = backend.complete(user_prompt, system=system_prompt)
+            summary = summarizer.summarize(
+                records,
+                model_name=model.__name__,
+                backend=backend,
+                token_threshold=audit_settings.CHUNK_TOKEN_THRESHOLD,
+                notify=lambda msg: self.stdout.write(self.style.NOTICE(msg)),
+            )
         except LLMBackendError as exc:
             raise CommandError(str(exc)) from None
 

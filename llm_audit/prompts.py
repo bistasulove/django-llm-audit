@@ -44,6 +44,44 @@ Provide:
 """
 
 
+#: The reduce-step system prompt. Used in M2's map-reduce when records span more than
+#: one chunk: each chunk is summarized independently (the "map" step, reusing
+#: SYSTEM_PROMPT above), then those partial summaries are combined here (the "reduce"
+#: step). The model now reasons over *summaries of the same table*, not raw rows, so the
+#: grounding is different: warn it that detail has already been lossy-compressed, that
+#: partials may overlap or disagree, and that it must not fabricate specifics it can no
+#: longer see in the underlying data.
+META_SYSTEM_PROMPT = (
+    "You are a data analyst combining several partial analyses into one final report. "
+    "Each partial analysis below covers a different, non-overlapping subset of rows from "
+    "the same database table; together they describe the whole dataset.\n\n"
+    "Synthesize them into a single coherent summary. Reconcile and aggregate findings "
+    "across the partials: merge patterns that recur, and treat a pattern seen in several "
+    "partials as stronger than one seen in only one. Where partials disagree or a count "
+    "cannot be summed exactly from what you are given, say so rather than inventing a "
+    "precise figure.\n\n"
+    "You are working from summaries, not the original rows — detail has already been "
+    "compressed, so do not fabricate specific values that are not present in the partials. "
+    "Do not assert causation from correlation, and state your confidence when uncertain."
+)
+
+#: The reduce-step task + data. Mirrors AUDIT_TASK_TEMPLATE's numbered structure so the
+#: final multi-chunk output is shaped identically to a single-chunk run.
+META_TASK_TEMPLATE = """The following {chunk_count} partial analyses together cover all \
+{record_count} records from the '{model_name}' table, split across chunks for processing.
+
+Combine them into one final report with the same structure:
+1. A one-sentence headline insight for the whole dataset
+2. Key patterns and trends (3-5 bullet points), aggregated across the partials
+3. Anomalies or unusual values — for each, note whether it looks like a genuine business
+   signal or a possible data artifact, and how confident you are
+4. A brief overall assessment (2-3 sentences)
+
+[Partial analyses]
+{summaries_block}
+"""
+
+
 def build_audit_prompt(
     model_name: str,
     record_count: int,
@@ -70,3 +108,33 @@ def build_audit_prompt(
         records_json=records_json,
     )
     return SYSTEM_PROMPT, user_prompt
+
+
+def build_meta_prompt(
+    model_name: str,
+    record_count: int,
+    chunk_summaries: list[str],
+) -> tuple[str, str]:
+    """Build the reduce-step prompt that combines per-chunk summaries into one.
+
+    Args:
+        model_name: The Django model's class name (e.g. ``"Order"``).
+        record_count: Total records across all chunks (the whole dataset).
+        chunk_summaries: The per-chunk summaries from the map step, in order.
+
+    Returns:
+        A ``(system_prompt, user_prompt)`` tuple.
+    """
+    # Label each partial so the model can refer to them and weigh recurrence. The blank
+    # lines keep the boundaries legible to the model.
+    summaries_block = "\n\n".join(
+        f"--- Partial analysis {i} of {len(chunk_summaries)} ---\n{summary}"
+        for i, summary in enumerate(chunk_summaries, start=1)
+    )
+    user_prompt = META_TASK_TEMPLATE.format(
+        chunk_count=len(chunk_summaries),
+        record_count=record_count,
+        model_name=model_name,
+        summaries_block=summaries_block,
+    )
+    return META_SYSTEM_PROMPT, user_prompt
