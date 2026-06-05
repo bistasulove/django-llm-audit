@@ -11,3 +11,12 @@ class LLMBackendError(LLMAuditError):
 
 class ChunkingError(LLMAuditError):
     """Raised when records cannot be chunked within the configured token threshold."""
+
+
+class StructuredOutputError(LLMAuditError):
+    """Raised when the LLM cannot produce valid, schema-conforming JSON after retries.
+
+    Distinct from :class:`LLMBackendError`: the backend succeeded in returning text, but
+    that text could not be parsed as JSON or did not match the report schema, even after
+    the configured retries.
+    """

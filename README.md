@@ -11,18 +11,20 @@
 Django model and returns intelligent summaries, trend analysis, and anomaly reports —
 entirely from the terminal via a management command.
 
-> **Status:** 🚧 Early development — milestone **M3 (streaming output)** is functional.
+> **Status:** 🚧 Early development — milestone **M4 (structured output)** is functional.
 > The `audit_model` command produces a real summary today via the Anthropic backend,
-> handles large datasets by chunking them and summarizing map-reduce style, and can stream
-> the report token-by-token with `--stream`. The full documentation lands in milestone M7.
-> See [`CLAUDE.md`](CLAUDE.md) for the roadmap and [`CHANGELOG.md`](CHANGELOG.md) for what
-> has shipped.
+> handles large datasets by chunking them and summarizing map-reduce style, can stream the
+> report token-by-token with `--stream`, and can emit a validated structured report as JSON
+> or Markdown with `--format`. The full documentation lands in milestone M7. See
+> [`CLAUDE.md`](CLAUDE.md) for the roadmap and [`CHANGELOG.md`](CHANGELOG.md) for what has
+> shipped.
 
 ## Why
 
 - Zero migrations, zero models, zero coupling to your code — it only *reads* your data.
 - Provider-agnostic by design: pluggable LLM backends _(Anthropic today; OpenAI and others land in M5)_.
 - Token-aware: chunks large datasets so they fit the model's context window, then summarizes map-reduce style.
+- Structured output: get a validated JSON or Markdown report (Pydantic-checked), not just free text.
 
 ## Install
 
@@ -52,29 +54,43 @@ python manage.py audit_model --app store --model Order --limit 50
 
 # stream the report token-by-token as it is generated
 python manage.py audit_model --app store --model Order --limit 50 --stream
+
+# get a validated structured report as JSON or Markdown (optionally written to a file)
+python manage.py audit_model --app store --model Order --format json
+python manage.py audit_model --app store --model Order --format markdown --output report.md
 ```
 
-## What works today (M3)
+## What works today (M4)
 
 The command resolves a model, serializes up to `--limit` records to JSON, splits them into
-token-safe chunks, and asks the LLM for a structured plain-text summary (headline,
-patterns, anomalies, assessment). Datasets that exceed `CHUNK_TOKEN_THRESHOLD` are
+token-safe chunks, and summarizes them. Datasets that exceed `CHUNK_TOKEN_THRESHOLD` are
 summarized **map-reduce style**: each chunk is summarized on its own, then those partial
 summaries are combined into one final report. Small datasets that fit in a single chunk
 skip the reduce step and cost just one call.
 
-With `--stream`, the final report prints token-by-token as it is generated, followed by an
-estimated token tally. In a multi-chunk run only the final combined report streams — the
-per-chunk summaries must complete in full first, since they feed the combine step.
+Output comes in two shapes:
 
-| Flag | Status in M3 |
+- **Prose** (`--format text`, the default) — a plain-text summary (headline, patterns,
+  anomalies, assessment). With `--stream` it prints token-by-token as it is generated,
+  followed by an estimated token tally. In a multi-chunk run only the final combined report
+  streams — the per-chunk summaries must complete first, since they feed the combine step.
+- **Structured** (`--format json` or `--format markdown`) — the LLM is asked to return JSON,
+  which is validated with Pydantic into a `SummaryReport` (retried up to twice if the model
+  returns malformed or off-schema output) and then rendered. Metadata like the model name,
+  record count, and timestamp is filled in by the plugin, not the LLM. Structured output is
+  buffered to validate, so `--stream` does not apply to it. `--output <path>` writes the
+  rendered report to a file.
+
+| Flag | Status in M4 |
 |------|--------------|
 | `--app`, `--model` | ✅ honored (defaults to `store.Order`) |
 | `--limit` | ✅ honored (default 50) — a safety cap; chunking handles the token budget |
-| `--stream` | ✅ honored — streams the final report token-by-token |
-| `--fields`, `--filter`, `--output`, `--format`, `--backend` | ⏳ parsed but not yet wired (later milestones) |
+| `--stream` | ✅ honored for `--format text`; ignored (with a warning) for structured formats |
+| `--format` | ✅ honored — `text` (default), `json`, `markdown` |
+| `--output` | ✅ honored — writes the rendered report to a file |
+| `--fields`, `--filter`, `--backend` | ⏳ parsed but not yet wired (later milestones) |
 
-Not yet implemented: structured/JSON output (M4) and non-Anthropic backends (M5).
+Not yet implemented: non-Anthropic backends (M5).
 
 ## Configuration
 

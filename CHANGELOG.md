@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **M4 — Structured output with Pydantic**
+  - `--format json` and `--format markdown` switch `audit_model` to a *structured* path:
+    the LLM is asked to return JSON, which is validated into a `SummaryReport` and then
+    rendered. `--format text` (the default) keeps the free-text prose path.
+  - `--output <path>` writes the rendered report to a file instead of stdout.
+  - `schemas/report.py` — `Anomaly`, `ReportBody` (the analytical fields the LLM returns),
+    and `SummaryReport` (`ReportBody` plus metadata — `model_name`, `record_count`,
+    `generated_at` — injected in Python, never asked of the LLM). `severity` is a strict
+    `Literal["low", "medium", "high"]`.
+  - `formatters.py` — pure `text` / `json` / `markdown` renderers over a `SummaryReport`.
+  - `prompts.py` — structured `build_structured_audit_prompt()` /
+    `build_structured_meta_prompt()` whose JSON example is built from a real validated
+    `ReportBody`, so the prompt can never drift from the schema.
+  - `summarizer.summarize(structured=True)` returns a validated `SummaryReport`. The
+    terminal call is parsed, validated, and **retried** (up to 2 times) with the specific
+    error fed back to the model; exhausting retries raises the new `StructuredOutputError`.
+    In a multi-chunk run only the reduce call is structured — the map calls stay prose.
+  - Unit tests for the schemas, the formatters, and the structured summarizer path
+    (including retry-then-succeed, schema-violation retry, and retry exhaustion).
+
 - **M3 — Streaming output**
   - `audit_model --stream` prints the final report token-by-token as it arrives instead
     of all at once. After the stream ends it prints an estimated token tally
@@ -60,6 +80,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **M4** — `summarizer.summarize()` gained `structured` and `max_retries` parameters and can
+  now return a `SummaryReport` (in addition to a string or a streaming generator). `audit_model`
+  routes on `--format`: structured formats buffer and validate, so `--stream` is ignored (with a
+  warning) when combined with `--format json`/`markdown`.
 - **M3** — `summarizer.summarize()` gained a `stream` flag and now funnels every run
   through a single terminal backend call (the stream-vs-complete decision point); the old
   `_summarize_chunk` helper became `_build_chunk_prompt` (prompt construction only, no

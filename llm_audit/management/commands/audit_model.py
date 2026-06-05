@@ -11,19 +11,27 @@ summarization. Serialization moved to ``serializer.py`` and chunking to ``chunke
 M3 wires ``--stream``: when set, the final report is printed token-by-token as it
 arrives instead of all at once.
 
-Still deferred: structured output (M4), backend abstraction (M5). The ``--fields``,
-``--filter``, ``--output``, ``--format``, and ``--backend`` flags are parsed but not yet
-honored.
+M4 wires ``--format`` and ``--output``. ``--format text`` keeps the free-text prose path
+(streamable, M1–M3). ``--format json`` / ``markdown`` switch to the *structured* path: the
+LLM returns JSON, validated into a :class:`~llm_audit.schemas.report.SummaryReport`, then
+rendered. Structured output must be buffered to validate, so ``--stream`` is ignored there.
+``--output`` writes the rendered report to a file instead of stdout.
+
+Still deferred: backend abstraction (M5). The ``--fields``, ``--filter``, and ``--backend``
+flags are parsed but not yet honored.
 """
 
 from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
 
-from llm_audit import summarizer
+from llm_audit import formatters, summarizer
 from llm_audit.backends.anthropic import AnthropicBackend
 from llm_audit.chunker import estimate_tokens
 from llm_audit.conf import audit_settings
-from llm_audit.exceptions import LLMBackendError
+from llm_audit.exceptions import LLMBackendError, StructuredOutputError
+
+#: Formats that take the structured (validated JSON) path rather than free-text prose.
+STRUCTURED_FORMATS = frozenset({"json", "markdown"})
 
 #: M1 defaults when --app/--model are omitted. The demo's flagship time-series model.
 DEFAULT_APP = "store"
@@ -77,6 +85,23 @@ class Command(BaseCommand):
             )
             return
 
+        output_format = options["format"]
+        output_path = options["output"]
+        structured = output_format in STRUCTURED_FORMATS
+
+        # Structured output and streaming are mutually exclusive: you cannot validate half
+        # a JSON object, so the structured path must buffer the whole response. Warn rather
+        # than silently dropping a flag the user explicitly set.
+        stream = options["stream"]
+        if structured and stream:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"--stream is ignored with --format {output_format}; structured "
+                    "output must be buffered to validate. Producing a full report."
+                )
+            )
+            stream = False
+
         self.stdout.write(
             self.style.NOTICE(
                 f"Auditing {len(records)} {model.__name__} record(s) with "
@@ -84,15 +109,16 @@ class Command(BaseCommand):
             )
         )
 
-        # Surface backend problems (missing key, missing SDK, API failure) as a clean
-        # one-line CommandError rather than a traceback. Serialization, chunking, and the
-        # map-reduce summarization now all live behind summarizer.summarize. We inject the
-        # backend and a notify callback so the library reports progress through our styled
-        # stdout without importing Django or owning the terminal itself.
+        # Surface backend and validation problems as a clean one-line CommandError rather
+        # than a traceback. Serialization, chunking, and the map-reduce summarization all
+        # live behind summarizer.summarize. We inject the backend and a notify callback so
+        # the library reports progress through our styled stdout without owning the
+        # terminal itself.
         #
-        # When streaming, summarize() returns a generator and the real API call happens as
-        # we consume it below — so the consume loop must sit inside this try, since
-        # LLMBackendError can now surface mid-iteration rather than up front.
+        # The whole produce-and-emit block sits inside this try: when streaming, the API
+        # call happens as we consume the generator; in the structured path, validation
+        # failures (StructuredOutputError) surface during summarize(). Either can fail after
+        # we've started, so both must be guarded here.
         try:
             backend = AnthropicBackend(
                 api_key=audit_settings.API_KEY,
@@ -105,14 +131,33 @@ class Command(BaseCommand):
                 backend=backend,
                 token_threshold=audit_settings.CHUNK_TOKEN_THRESHOLD,
                 notify=lambda msg: self.stdout.write(self.style.NOTICE(msg)),
-                stream=options["stream"],
+                stream=stream,
+                structured=structured,
             )
-            if options["stream"]:
+
+            if structured:
+                # summarize() returned a validated SummaryReport; render it to the format.
+                self._emit(formatters.render(result, output_format), output_path)
+            elif stream and not output_path:
+                # Live prose to the terminal, token by token.
                 self._write_stream(result)
+            elif stream:
+                # Streaming requested but writing to a file: buffer the pieces, no live
+                # effect (decision E) — a file has no cursor to animate.
+                self._emit("".join(result), output_path)
             else:
-                self.stdout.write(result)
-        except LLMBackendError as exc:
+                self._emit(result, output_path)
+        except (LLMBackendError, StructuredOutputError) as exc:
             raise CommandError(str(exc)) from None
+
+    def _emit(self, content, output_path):
+        """Write a finished report to ``output_path`` if given, else to stdout."""
+        if output_path:
+            with open(output_path, "w", encoding="utf-8") as handle:
+                handle.write(content)
+            self.stdout.write(self.style.SUCCESS(f"Report written to {output_path}"))
+        else:
+            self.stdout.write(content)
 
     def _write_stream(self, tokens):
         """Print streamed report pieces as they arrive, then a token tally.
