@@ -38,4 +38,14 @@ jobs:
         run: black --check .
 
       - name: Run tests
-        run: pytest
+        run: pytest --cov=llm_audit --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          # Repo upload token from a GitHub secret (CODECOV_TOKEN). codecov-action@v4 prefers a
+          # token even for public repos; if the secret is unset it falls back to tokenless.
+          token: ${{ secrets.CODECOV_TOKEN }}
+          # fail_ci_if_error stays false so a Codecov hiccup never reds a green test run.
+          fail_ci_if_error: false

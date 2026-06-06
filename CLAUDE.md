@@ -1036,6 +1036,9 @@ A running record of decisions made and why. Add to this as the project evolves.
 | 2026-06-06 | Local backend = native Ollama over stdlib HTTP | M5 exercise: a provider with no SDK; zero new deps; teaches raw HTTP/NDJSON |
 | 2026-06-06 | Short backend aliases (`anthropic`/`openai`/`ollama`/`mock`) | Lower wiring than dotted paths; non-aliases still resolve as paths so custom backends work |
 | 2026-06-06 | Named backend configs (`BACKENDS`+`DEFAULT`) | Flat `--backend` swapped only the class while key/model stayed global, so it couldn't switch real providers; named bundles (Django `DATABASES` pattern) fix it. Flat shape kept for back-compat. Bundle `BACKEND` required (no name-as-alias inference — explicit over magic) |
+| 2026-06-06 | M6: dedicated test app (`tests/testapp`) for integration tests | Need a real model with records to drive `call_command` end-to-end; reusing `demo/store` would couple the suite to the demo (breaks the one-way demo→plugin dependency). Migration-less app, table built via `--run-syncdb`. Canonical reusable-app testing pattern (DRF/allauth) |
+| 2026-06-06 | M6: coverage gated at >80% in CI + Codecov badge | M6 deliverable is >80%. `--cov-fail-under=80` enforces it; real-SDK backend bodies stay untested (§11) and set the ceiling. Codecov gives a live README badge (tokenless for the public repo) |
+| 2026-06-06 | M6: kept bespoke fakes in `test_summarizer`, used `MockBackend` only for command tests | The summarizer fakes introspect call order/system prompts and simulate retry-then-fail — `MockBackend` (deterministic, no call log) can't. MockBackend is right for end-to-end command output assertions |
 
 ---
 

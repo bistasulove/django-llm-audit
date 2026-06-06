@@ -30,3 +30,20 @@ def test_indent_none_is_more_compact_than_indented():
 
 def test_empty_list_serializes_to_empty_json_array():
     assert serialize_records([]) == "[]"
+
+
+def test_serializes_a_real_queryset_values(seeded_orders):
+    # The integration check CLAUDE.md §11 asks for: serialize what the command actually
+    # sends — a real model's .values() — and confirm the Decimal/datetime columns survive
+    # default=str instead of raising TypeError (ADR-004).
+    from tests.testapp.models import Order
+
+    records = list(Order.objects.values("status", "total", "created_at").order_by("total"))
+    result = serialize_records(records)
+    parsed = json.loads(result)
+
+    assert len(parsed) == len(seeded_orders)
+    # Decimal -> string, datetime -> string; both came straight from the ORM.
+    assert all(isinstance(row["total"], str) for row in parsed)
+    assert all(isinstance(row["created_at"], str) for row in parsed)
+    assert parsed[0]["total"] == "8.00"

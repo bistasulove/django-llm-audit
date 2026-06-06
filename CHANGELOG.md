@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **M6 — Tests & CI**
+  - End-to-end management-command tests: `call_command("audit_model", ...)` drives the full
+    pipeline (model resolution → `.values()` → chunking → summarization → formatting →
+    stdout/file) against a real, seeded model, with only the LLM faked via the shipped
+    `MockBackend`. Covers the prose, streaming, `--format json`, `--format markdown --output`,
+    `--limit`, `--backend` override, and empty-queryset paths.
+  - A tiny test-only app (`tests/testapp`, model `testapp.Order`) so the integration tests have
+    a real model to audit without depending on the demo project. New `conftest` fixtures:
+    `seeded_orders` (real rows) and `use_mock_backend` (offline backend via settings).
+  - Settings-accessor tests (`tests/test_conf.py`): defaults, user overrides, and an unknown
+    key raising `AttributeError`. Serializer now also tested against a real queryset `.values()`
+    (Decimal/datetime survive `default=str`).
+  - Coverage measurement (`pytest-cov`) wired into CI with a **>80% gate**
+    (`--cov-fail-under=80`) and a Codecov upload; coverage badge added to the README.
+
 - **M5 — Pluggable LLM backends**
   - **Named backend configs** — `LLM_AUDIT` now supports a `BACKENDS` dict of self-contained
     bundles (each with its own `BACKEND`/`API_KEY`/`MODEL`) plus a `DEFAULT`, the Django

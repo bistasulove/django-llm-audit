@@ -10,6 +10,9 @@ INSTALLED_APPS = [
     "django.contrib.contenttypes",
     "django.contrib.auth",
     "llm_audit",
+    # A tiny test-only app providing a real model (testapp.Order) for the integration
+    # tests to audit. Migration-less; pytest-django builds its table via --run-syncdb.
+    "tests.testapp",
 ]
 
 DATABASES = {

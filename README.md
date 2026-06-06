@@ -1,6 +1,7 @@
 # django-llm-audit
 
 [![CI](https://github.com/bistasulove/django-llm-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/bistasulove/django-llm-audit/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/bistasulove/django-llm-audit/branch/master/graph/badge.svg)](https://codecov.io/gh/bistasulove/django-llm-audit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 
@@ -11,13 +12,14 @@
 Django model and returns intelligent summaries, trend analysis, and anomaly reports —
 entirely from the terminal via a management command.
 
-> **Status:** 🚧 Early development — milestone **M5 (pluggable backends)** is functional.
+> **Status:** 🚧 Early development — milestone **M6 (tests & CI)** is complete.
 > The `audit_model` command produces a real summary today, handles large datasets by
 > chunking them and summarizing map-reduce style, can stream the report token-by-token with
 > `--stream`, can emit a validated structured report as JSON or Markdown with `--format`, and
 > runs against any configured LLM backend (Anthropic, OpenAI, and a local Ollama backend
-> built in, swappable via settings or `--backend`). The full documentation lands in milestone
-> M7. See
+> built in, swappable via settings or `--backend`). It ships with a full test suite (the LLM
+> is mocked, the data is real) gated at >80% coverage in CI across Python 3.10–3.12. The full
+> documentation lands in milestone M7. See
 > [`CLAUDE.md`](CLAUDE.md) for the roadmap and [`CHANGELOG.md`](CHANGELOG.md) for what has
 > shipped.
 
@@ -228,8 +230,13 @@ python demo/manage.py seed_data       # idempotent; --reset to wipe & reseed
 python demo/manage.py audit_model --limit 50
 
 pytest                                # tests run without an API key (none reach the LLM)
+pytest --cov=llm_audit --cov-report=term-missing   # with coverage (gated at >80% in CI)
 ruff check . && black --check .
 ```
+
+Tests follow CLAUDE.md §11: the LLM (an external I/O dependency) is mocked via the shipped
+`MockBackend`, while the data is real — a tiny test-only `testapp.Order` model is seeded and
+audited end-to-end through `call_command`. No test ever spends a token or needs a key.
 
 The `demo/` project loads `.env` from the repo root via `python-dotenv`, so the demo picks
 up `ANTHROPIC_API_KEY` automatically.

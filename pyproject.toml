@@ -78,3 +78,15 @@ ignore = []
 DJANGO_SETTINGS_MODULE = "tests.settings"
 python_files = ["test_*.py"]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# Measure the installable package only — never the demo or the tests themselves.
+source = ["llm_audit"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+# CLAUDE.md M6 deliverable: keep coverage above 80%. The real-SDK call bodies in the
+# anthropic/openai backends are deliberately excluded from testing (CLAUDE.md §11: don't test
+# the SDK), which sets a natural ceiling — the gate guards everything else.
+fail_under = 80
