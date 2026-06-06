@@ -15,15 +15,17 @@ entirely from the terminal via a management command.
 > The `audit_model` command produces a real summary today, handles large datasets by
 > chunking them and summarizing map-reduce style, can stream the report token-by-token with
 > `--stream`, can emit a validated structured report as JSON or Markdown with `--format`, and
-> runs against any configured LLM backend (Anthropic or OpenAI built in, swappable via
-> settings or `--backend`). The full documentation lands in milestone M7. See
+> runs against any configured LLM backend (Anthropic, OpenAI, and a local Ollama backend
+> built in, swappable via settings or `--backend`). The full documentation lands in milestone
+> M7. See
 > [`CLAUDE.md`](CLAUDE.md) for the roadmap and [`CHANGELOG.md`](CHANGELOG.md) for what has
 > shipped.
 
 ## Why
 
 - Zero migrations, zero models, zero coupling to your code — it only *reads* your data.
-- Provider-agnostic by design: pluggable LLM backends (Anthropic and OpenAI built in; write your own).
+- Provider-agnostic by design: pluggable LLM backends (Anthropic, OpenAI, and local Ollama built in; write your own).
+- Run it fully local and key-free with [Ollama](https://ollama.com) — your data never leaves the machine.
 - Token-aware: chunks large datasets so they fit the model's context window, then summarizes map-reduce style.
 - Structured output: get a validated JSON or Markdown report (Pydantic-checked), not just free text.
 
@@ -42,10 +44,18 @@ pip install django-llm-audit[anthropic]   # the anthropic extra pulls in the Cla
 # settings.py
 INSTALLED_APPS = ["llm_audit"]
 
+# Cloud provider (Anthropic shown; "openai" works the same way):
 LLM_AUDIT = {
-    "BACKEND": "llm_audit.backends.anthropic.AnthropicBackend",
+    "BACKEND": "anthropic",                 # short alias; the full dotted path also works
     "API_KEY": os.environ["ANTHROPIC_API_KEY"],
     "MODEL": "claude-haiku-4-5-20251001",   # default; override with any Claude model id
+}
+
+# ...or run a local model with Ollama — no API key, nothing leaves your machine:
+LLM_AUDIT = {
+    "BACKEND": "ollama",
+    "MODEL": "llama3.1",                     # any model you've `ollama pull`ed
+    # host defaults to http://localhost:11434; override with the OLLAMA_HOST env var
 }
 ```
 
@@ -92,40 +102,87 @@ Output comes in two shapes:
 | `--stream` / `--no-stream` | ✅ streaming is **on by default** for `--format text` to the terminal; `--no-stream` opts out. Automatically off (buffered) for structured formats and file output |
 | `--format` | ✅ honored — `text` (default), `json`, `markdown` |
 | `--output` | ✅ honored — writes the rendered report to a file |
-| `--backend` | ✅ honored — dotted path overriding `LLM_AUDIT["BACKEND"]` for one run |
+| `--backend` | ✅ honored — selects a named backend (class + key + model) for one run, or overrides the class in a flat config |
 | `--fields`, `--filter` | ⏳ parsed but not yet wired (later milestones) |
 
 ## Configuration
 
-All settings live under `LLM_AUDIT` in your Django settings, read through the plugin's
-settings accessor with these defaults:
+All settings live under `LLM_AUDIT` in your Django settings. There are two shapes — use the
+flat one for a single provider, or named backends when you want to switch between several.
+
+**Flat (single provider):**
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `BACKEND` | `llm_audit.backends.anthropic.AnthropicBackend` | Dotted path to the LLM backend class. |
-| `API_KEY` | `None` | Your provider API key. Required by the real backends; `MockBackend` ignores it. |
+| `BACKEND` | `anthropic` | Which backend to use: a short alias (`anthropic`, `openai`, `ollama`, `mock`) or a full dotted path. |
+| `API_KEY` | `None` | Your provider API key. Required by the real backends; `MockBackend` and `OllamaBackend` ignore it. |
 | `MODEL` | `claude-haiku-4-5-20251001` | LLM model id. |
 | `MAX_TOKENS` | `1024` | Max tokens in the LLM response. |
 | `CHUNK_TOKEN_THRESHOLD` | `3000` | Max estimated tokens of records JSON per chunk. |
 | `DEFAULT_RECORD_LIMIT` | `50` | Default `--limit` when not specified. |
 
+**Named backends (switch providers per run):** add a `BACKENDS` dict of self-contained
+bundles and a `DEFAULT` naming the one to use when `--backend` is omitted — the same idea as
+Django's `DATABASES` + `--database`. Each bundle needs its own `BACKEND` (plus `API_KEY` /
+`MODEL` as the provider requires); `MAX_TOKENS` may be set per bundle or shared at the top
+level. The pipeline-wide keys (`CHUNK_TOKEN_THRESHOLD`, `DEFAULT_RECORD_LIMIT`) always live at
+the top level.
+
+```python
+LLM_AUDIT = {
+    "DEFAULT": "anthropic",
+    "BACKENDS": {
+        "anthropic": {"BACKEND": "anthropic", "API_KEY": os.environ["ANTHROPIC_API_KEY"], "MODEL": "claude-haiku-4-5-20251001"},
+        "openai":    {"BACKEND": "openai",    "API_KEY": os.environ["OPENAI_API_KEY"],    "MODEL": "gpt-4o"},
+        "ollama":    {"BACKEND": "ollama",    "MODEL": "llama3.1"},   # local, no key
+    },
+    "MAX_TOKENS": 1024,
+    "CHUNK_TOKEN_THRESHOLD": 3000,
+    "DEFAULT_RECORD_LIMIT": 50,
+}
+```
+
+```bash
+python manage.py audit_model --model Order              # uses DEFAULT ("anthropic")
+python manage.py audit_model --model Order --backend openai   # switches class + key + model
+```
+
 ## Backends
 
 Every LLM call goes through a backend implementing `BaseLLMBackend`. The plugin depends on
 that abstraction, never on a provider SDK, so switching providers is a settings change — not
-a code change. You pick one with `LLM_AUDIT["BACKEND"]` (a dotted path), and override it for
-a single run with `--backend`.
+a code change. You pick one with `LLM_AUDIT` (flat `BACKEND`, or named `BACKENDS` + `DEFAULT`
+as shown in [Configuration](#configuration)) and override it for a single run with `--backend`.
+A `BACKEND` value can be a short **alias** or a full dotted path:
 
-| Backend | Dotted path | Install |
-|---------|-------------|---------|
-| Anthropic (Claude) | `llm_audit.backends.anthropic.AnthropicBackend` | `pip install django-llm-audit[anthropic]` |
-| OpenAI (GPT) | `llm_audit.backends.openai.OpenAIBackend` | `pip install django-llm-audit[openai]` |
-| Mock (tests/offline) | `llm_audit.backends.mock.MockBackend` | _(built in; no SDK, no API key)_ |
+| Backend | Alias | Dotted path | Install |
+|---------|-------|-------------|---------|
+| Anthropic (Claude) | `anthropic` | `llm_audit.backends.anthropic.AnthropicBackend` | `pip install django-llm-audit[anthropic]` |
+| OpenAI (GPT) | `openai` | `llm_audit.backends.openai.OpenAIBackend` | `pip install django-llm-audit[openai]` |
+| Ollama (local) | `ollama` | `llm_audit.backends.ollama.OllamaBackend` | _(built in; no SDK — just a running Ollama)_ |
+| Mock (tests/offline) | `mock` | `llm_audit.backends.mock.MockBackend` | _(built in; no SDK, no API key)_ |
 
 ```bash
 # one-off run against OpenAI without changing settings
-python manage.py audit_model --backend llm_audit.backends.openai.OpenAIBackend
+python manage.py audit_model --backend openai
 ```
+
+### Local models with Ollama
+
+The Ollama backend talks to a [local Ollama](https://ollama.com) server over plain HTTP, so it
+needs **no API key and no extra Python package** — only a running Ollama with your model pulled:
+
+```bash
+ollama serve            # start the server (often already running)
+ollama pull llama3.1    # pull a model once
+
+python manage.py audit_model --backend ollama --model Order
+```
+
+Point `LLM_AUDIT["MODEL"]` at any tag you've pulled. The host defaults to
+`http://localhost:11434`; set the `OLLAMA_HOST` environment variable to reach a server on
+another address. If Ollama isn't running you get a clear, actionable error rather than a
+traceback.
 
 `MockBackend` returns deterministic output with no network call and no API key — point your
 test settings at it to exercise the whole pipeline offline:
@@ -138,7 +195,7 @@ LLM_AUDIT = {"BACKEND": "llm_audit.backends.mock.MockBackend"}
 
 Subclass `BaseLLMBackend` and implement `complete` and `stream` (`count_tokens` has a sane
 default). Construct it with `api_key` / `model` / `max_tokens` keyword arguments — the same
-shape the factory uses for every backend:
+shape the factory uses for every backend. Store `self.model` so the run banner can report it:
 
 ```python
 from collections.abc import Generator
@@ -146,6 +203,7 @@ from llm_audit.backends.base import BaseLLMBackend
 
 class MyBackend(BaseLLMBackend):
     def __init__(self, api_key, model, max_tokens):
+        self.model = model
         ...
 
     def complete(self, prompt: str, system: str | None = None) -> str:

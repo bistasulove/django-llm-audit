@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **M5 — Pluggable LLM backends**
+  - **Named backend configs** — `LLM_AUDIT` now supports a `BACKENDS` dict of self-contained
+    bundles (each with its own `BACKEND`/`API_KEY`/`MODEL`) plus a `DEFAULT`, the Django
+    `DATABASES` pattern. `--backend <name>` selects a whole bundle — class **and** key **and**
+    model together — so switching providers for one run actually works (previously `--backend`
+    swapped only the class while key/model stayed global). The flat single-provider `LLM_AUDIT`
+    shape still works unchanged. Resolution lives in `conf.resolve_backend_config()`; unknown
+    names or a `BACKENDS` map without a `DEFAULT` raise `ImproperlyConfigured` (clean
+    `CommandError`). The run banner now reports the **resolved** model for the chosen backend.
+  - `OllamaBackend` (`backends/ollama.py`) — a backend for local models served by
+    [Ollama](https://ollama.com), talking to its `/api/chat` endpoint over the standard
+    library (`urllib`) with **no SDK and no API key**. Handles Ollama's newline-delimited
+    JSON streaming, maps `max_tokens` to `num_predict`, reads the host from `OLLAMA_HOST`
+    (default `http://localhost:11434`), and raises a clear "is it running?" error when the
+    server is unreachable. The CLAUDE.md M5 exercise (a provider with no official SDK).
+  - **Short backend aliases** — `LLM_AUDIT["BACKEND"]` (and `--backend`) now accept
+    `"anthropic"`, `"openai"`, `"ollama"`, or `"mock"` in place of the full dotted path
+    (`backends.BACKEND_ALIASES`). Any non-alias value is still treated as a dotted path, so
+    custom backends keep working. The default `BACKEND` is now the `"anthropic"` alias.
   - `BaseLLMBackend` (`backends/base.py`) is now the formal interface every backend
     implements — `complete(prompt, system=...)` and `stream(prompt, system=...)`, plus a
     concrete `count_tokens` default (the `len // 4` heuristic; override for exact counts).

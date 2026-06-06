@@ -103,7 +103,15 @@ class Command(BaseCommand):
                 "file output, which must buffer."
             ),
         )
-        parser.add_argument("--backend", help="Override the configured backend (dotted path).")
+        parser.add_argument(
+            "--backend",
+            help=(
+                "Backend to use for this run. With named backends (LLM_AUDIT['BACKENDS']) this "
+                "is a bundle name (e.g. 'openai') and switches class, key, and model together. "
+                "With a flat LLM_AUDIT it is a backend alias or dotted path overriding the "
+                "class only."
+            ),
+        )
 
     def handle(self, *args, **options):
         app_label = options["app"] or DEFAULT_APP
@@ -147,13 +155,6 @@ class Command(BaseCommand):
                 )
             )
 
-        self.stdout.write(
-            self.style.NOTICE(
-                f"Auditing {len(records)} {model.__name__} record(s) with "
-                f"{audit_settings.MODEL}...\n"
-            )
-        )
-
         # Surface backend and validation problems as a clean one-line CommandError rather
         # than a traceback. Serialization, chunking, and the map-reduce summarization all
         # live behind summarizer.summarize. We inject the backend and a notify callback so
@@ -167,7 +168,16 @@ class Command(BaseCommand):
         try:
             # Resolve the configured backend (or the --backend override) to an instance. The
             # command never names a provider — that is the whole point of M5's abstraction.
+            # Resolving here (inside the try) means a misconfigured backend surfaces as a clean
+            # CommandError, and lets the banner report the model actually chosen for this run.
             backend = get_backend(options["backend"])
+
+            self.stdout.write(
+                self.style.NOTICE(
+                    f"Auditing {len(records)} {model.__name__} record(s) with "
+                    f"{backend.model}...\n"
+                )
+            )
 
             # A whimsical status line fills the wait while the model works. For a single-chunk
             # run this is the only progress shown before the report; multi-chunk runs add their

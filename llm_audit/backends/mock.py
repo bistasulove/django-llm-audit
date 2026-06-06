@@ -66,6 +66,9 @@ class MockBackend(BaseLLMBackend):
     """
 
     def __init__(self, api_key: str | None = None, model: str | None = None, max_tokens: int = 0):
+        # Stored only so callers that read ``backend.model`` (e.g. the command's banner) work
+        # uniformly across backends; MockBackend never uses it to produce output.
+        self.model = model
         # Recorded so tests can assert what the summarizer asked for, if they want to.
         self.calls: list[tuple[str, str | None]] = []
         self.stream_calls: list[tuple[str, str | None]] = []

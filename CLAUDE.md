@@ -585,6 +585,41 @@ audit_settings = LLMAuditSettings()
 calls throughout the codebase are hard to find, don't validate, and don't provide defaults
 consistently. The settings accessor pattern is the Django way.
 
+### Named backends (added post-M5)
+
+The flat shape above configures one provider. To switch between several in one run, `LLM_AUDIT`
+also accepts a `BACKENDS` dict of self-contained bundles plus a `DEFAULT` — the same pattern as
+Django's `DATABASES` + `--database`:
+
+```python
+LLM_AUDIT = {
+    "DEFAULT": "anthropic",
+    "BACKENDS": {
+        "anthropic": {"BACKEND": "anthropic", "API_KEY": env("ANTHROPIC_API_KEY"), "MODEL": "claude-..."},
+        "openai":    {"BACKEND": "openai",    "API_KEY": env("OPENAI_API_KEY"),    "MODEL": "gpt-4o"},
+        "ollama":    {"BACKEND": "ollama",    "MODEL": "llama3.1"},   # local, no key
+    },
+    "MAX_TOKENS": 1024,            # shared; may be overridden per bundle
+    "CHUNK_TOKEN_THRESHOLD": 3000, # pipeline-wide (never per-backend)
+    "DEFAULT_RECORD_LIMIT": 50,    # pipeline-wide
+}
+```
+
+Each bundle **requires** its own `BACKEND` (an alias or dotted path); `API_KEY`/`MODEL` are
+per bundle; `MAX_TOKENS` resolves per bundle → top-level → default. `--backend <name>` selects
+a whole bundle (class **and** key **and** model), which is what makes a one-run provider switch
+actually work — the original flat-mode `--backend` swapped only the class while key/model stayed
+global, so it could not switch between two real cloud providers.
+
+`conf.resolve_backend_config(name)` hides both shapes from callers and is the *only* place that
+reads per-backend config; `audit_settings` still serves the pipeline-wide keys. Invalid config
+(unknown name, `BACKENDS` without `DEFAULT`, a bundle missing `BACKEND`) raises
+`ImproperlyConfigured`, surfaced by the command as a clean `CommandError`. The flat shape
+remains fully supported for the single-provider case.
+
+`BACKEND` aliases (`anthropic`/`openai`/`ollama`/`mock`) are accepted anywhere a `BACKEND` value
+is expected, in both shapes (`backends.BACKEND_ALIASES`).
+
 ---
 
 ## 9. Complete Milestone Roadmap
@@ -998,6 +1033,9 @@ A running record of decisions made and why. Add to this as the project evolves.
 | 2026-06-03 | `hatchling` as build backend | Modern, well-documented, no legacy baggage |
 | 2026-06-03 | `prompts.py` for all templates | Prompts are code; they need to be findable |
 | 2026-06-03 | MockBackend for CI tests | LLM quality is not unit-testable; mock the I/O |
+| 2026-06-06 | Local backend = native Ollama over stdlib HTTP | M5 exercise: a provider with no SDK; zero new deps; teaches raw HTTP/NDJSON |
+| 2026-06-06 | Short backend aliases (`anthropic`/`openai`/`ollama`/`mock`) | Lower wiring than dotted paths; non-aliases still resolve as paths so custom backends work |
+| 2026-06-06 | Named backend configs (`BACKENDS`+`DEFAULT`) | Flat `--backend` swapped only the class while key/model stayed global, so it couldn't switch real providers; named bundles (Django `DATABASES` pattern) fix it. Flat shape kept for back-compat. Bundle `BACKEND` required (no name-as-alias inference — explicit over magic) |
 
 ---
 
