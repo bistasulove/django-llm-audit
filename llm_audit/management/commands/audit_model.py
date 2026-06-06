@@ -22,8 +22,18 @@ M5 wires the backend abstraction: the command no longer names a concrete backend
 override) to a class and instantiates it. Swapping Anthropic for OpenAI is now a settings
 change, not a code change.
 
+Streaming is now the **default** for interactive prose output (``--format text`` to the
+terminal): a blocking call that prints nothing feels broken (CLAUDE.md §7). Use ``--no-stream``
+to opt out for scripting/piping. Streaming is automatically disabled where it cannot work —
+the structured JSON path (must buffer to validate) and file output (no cursor to animate).
+While the model is working, a whimsical "thinking" line fills the wait, so the previously
+silent single-chunk case now speaks.
+
 Still deferred: the ``--fields`` and ``--filter`` flags are parsed but not yet honored.
 """
+
+import argparse
+import random
 
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
@@ -41,6 +51,25 @@ STRUCTURED_FORMATS = frozenset({"json", "markdown"})
 #: M1 defaults when --app/--model are omitted. The demo's flagship time-series model.
 DEFAULT_APP = "store"
 DEFAULT_MODEL = "Order"
+
+#: Whimsical status lines shown while the model works, so the wait never sits silent. This is
+#: pure presentation copy and lives in the command, not the library (the summarizer stays
+#: stdout-free and reports facts through ``notify``).
+THINKING_PHRASES = (
+    "Cooking up the analysis",
+    "Crunching the numbers",
+    "Reading the records",
+    "Spotting patterns",
+    "Distilling insights",
+    "Simmering the summary",
+    "Connecting the dots",
+    "Sifting through the data",
+)
+
+
+def thinking_phrase() -> str:
+    """Return a random whimsical status line for the 'model is working' wait."""
+    return random.choice(THINKING_PHRASES)
 
 
 class Command(BaseCommand):
@@ -61,7 +90,19 @@ class Command(BaseCommand):
             default="text",
             help="Output format.",
         )
-        parser.add_argument("--stream", action="store_true", help="Stream output token-by-token.")
+        # BooleanOptionalAction gives both --stream and --no-stream. default=None lets us tell
+        # "the user explicitly chose" from "took the default" — needed so the structured-format
+        # warning only fires when --stream was passed on purpose.
+        parser.add_argument(
+            "--stream",
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help=(
+                "Stream the report token-by-token. On by default for --format text to the "
+                "terminal; use --no-stream to disable. Ignored for structured formats and "
+                "file output, which must buffer."
+            ),
+        )
         parser.add_argument("--backend", help="Override the configured backend (dotted path).")
 
     def handle(self, *args, **options):
@@ -94,18 +135,17 @@ class Command(BaseCommand):
         output_path = options["output"]
         structured = output_format in STRUCTURED_FORMATS
 
-        # Structured output and streaming are mutually exclusive: you cannot validate half
-        # a JSON object, so the structured path must buffer the whole response. Warn rather
-        # than silently dropping a flag the user explicitly set.
-        stream = options["stream"]
-        if structured and stream:
+        # Decide whether to stream. The rule — "stream whenever it can" — lives in a pure
+        # helper so it is unit-testable without a backend or a model. warn_ignored is True
+        # only when the user explicitly passed --stream somewhere it cannot apply.
+        stream, warn_ignored = self._resolve_stream(output_format, output_path, options["stream"])
+        if warn_ignored:
             self.stdout.write(
                 self.style.WARNING(
                     f"--stream is ignored with --format {output_format}; structured "
                     "output must be buffered to validate. Producing a full report."
                 )
             )
-            stream = False
 
         self.stdout.write(
             self.style.NOTICE(
@@ -128,6 +168,12 @@ class Command(BaseCommand):
             # Resolve the configured backend (or the --backend override) to an instance. The
             # command never names a provider — that is the whole point of M5's abstraction.
             backend = get_backend(options["backend"])
+
+            # A whimsical status line fills the wait while the model works. For a single-chunk
+            # run this is the only progress shown before the report; multi-chunk runs add their
+            # own per-chunk notices on top (from the summarizer's notify callback).
+            self.stdout.write(self.style.NOTICE(f"{thinking_phrase()}...\n"))
+
             result = summarizer.summarize(
                 records,
                 model_name=model.__name__,
@@ -152,6 +198,35 @@ class Command(BaseCommand):
                 self._emit(result, output_path)
         except (LLMBackendError, StructuredOutputError, ImproperlyConfigured) as exc:
             raise CommandError(str(exc)) from None
+
+    @staticmethod
+    def _resolve_stream(output_format, output_path, explicit_stream):
+        """Decide whether to stream, and whether to warn about an ignored ``--stream``.
+
+        The policy is "stream whenever it can": interactive prose to the terminal streams by
+        default; everything else buffers. ``explicit_stream`` is ``True`` (``--stream``),
+        ``False`` (``--no-stream``), or ``None`` (neither flag given).
+
+        Args:
+            output_format: The ``--format`` value (``text``/``json``/``markdown``).
+            output_path: The ``--output`` path, or ``None`` for stdout.
+            explicit_stream: The tri-state ``--stream``/``--no-stream`` choice.
+
+        Returns:
+            ``(stream, warn_ignored)`` — whether to stream, and whether to warn that an
+            explicit ``--stream`` was ignored.
+        """
+        if output_format in STRUCTURED_FORMATS:
+            # Structured output must be buffered to validate the JSON. Warn only if the user
+            # explicitly asked to stream — not when they merely left the new default on.
+            return False, explicit_stream is True
+        if output_path:
+            # Writing to a file: there is no cursor to animate, so buffer. No warning — this
+            # is the expected behaviour, not a dropped request (M4 decision E).
+            return False, False
+        # Interactive prose to the terminal: stream unless explicitly opted out with
+        # --no-stream. None (default) and True (--stream) both stream.
+        return explicit_stream is not False, False
 
     def _emit(self, content, output_path):
         """Write a finished report to ``output_path`` if given, else to stdout."""

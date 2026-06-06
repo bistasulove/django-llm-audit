@@ -51,10 +51,12 @@ LLM_AUDIT = {
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
+
+# the report streams token-by-token to your terminal by default
 python manage.py audit_model --app store --model Order --limit 50
 
-# stream the report token-by-token as it is generated
-python manage.py audit_model --app store --model Order --limit 50 --stream
+# opt out of streaming (e.g. for scripting or piping)
+python manage.py audit_model --app store --model Order --limit 50 --no-stream
 
 # get a validated structured report as JSON or Markdown (optionally written to a file)
 python manage.py audit_model --app store --model Order --format json
@@ -72,9 +74,10 @@ skip the reduce step and cost just one call.
 Output comes in two shapes:
 
 - **Prose** (`--format text`, the default) — a plain-text summary (headline, patterns,
-  anomalies, assessment). With `--stream` it prints token-by-token as it is generated,
-  followed by an estimated token tally. In a multi-chunk run only the final combined report
-  streams — the per-chunk summaries must complete first, since they feed the combine step.
+  anomalies, assessment). It **streams token-by-token to your terminal by default**, followed
+  by an estimated token tally; pass `--no-stream` to buffer instead. In a multi-chunk run only
+  the final combined report streams — the per-chunk summaries must complete first, since they
+  feed the combine step. While the model works, a short status line fills the wait.
 - **Structured** (`--format json` or `--format markdown`) — the LLM is asked to return JSON,
   which is validated with Pydantic into a `SummaryReport` (retried up to twice if the model
   returns malformed or off-schema output) and then rendered. Metadata like the model name,
@@ -86,7 +89,7 @@ Output comes in two shapes:
 |------|--------------|
 | `--app`, `--model` | ✅ honored (defaults to `store.Order`) |
 | `--limit` | ✅ honored (default 50) — a safety cap; chunking handles the token budget |
-| `--stream` | ✅ honored for `--format text`; ignored (with a warning) for structured formats |
+| `--stream` / `--no-stream` | ✅ streaming is **on by default** for `--format text` to the terminal; `--no-stream` opts out. Automatically off (buffered) for structured formats and file output |
 | `--format` | ✅ honored — `text` (default), `json`, `markdown` |
 | `--output` | ✅ honored — writes the rendered report to a file |
 | `--backend` | ✅ honored — dotted path overriding `LLM_AUDIT["BACKEND"]` for one run |

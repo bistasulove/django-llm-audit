@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backend tests (`test_backends.py`): interface conformance, the factory's
     resolution/override/bad-path behaviour, `MockBackend`'s output shapes, and missing-key
     rejection by the real backends.
+  - **Streaming by default** for interactive prose: `--format text` to the terminal now
+    streams token-by-token without any flag. `--stream`/`--no-stream` (argparse
+    `BooleanOptionalAction`) toggle it; `--no-stream` opts out for scripting/piping.
+    Streaming is automatically disabled where it cannot apply — structured formats (must
+    buffer to validate) and file output (no cursor to animate) — and the "ignored" warning
+    now fires only when `--stream` was passed explicitly. A whimsical status line fills the
+    wait while the model works, so the previously silent single-chunk case now speaks. The
+    stream decision lives in a pure, unit-tested `_resolve_stream` helper.
 
 - **M4 — Structured output with Pydantic**
   - `--format json` and `--format markdown` switch `audit_model` to a *structured* path:
@@ -110,6 +118,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BaseLLMBackend` (its method bodies were unchanged — the interface was reverse-engineered
   from code that had worked since M1). The `BaseLLMBackend` ABC signatures were finalized to
   include the `system` argument the summarizer already passes.
+- **M5** — Streaming is now the **default** for interactive `--format text` output (previously
+  opt-in via `--stream`). `--stream` became a `--stream`/`--no-stream` pair; non-streaming is
+  still automatic for structured formats and file output.
 - **M4** — `summarizer.summarize()` gained `structured` and `max_retries` parameters and can
   now return a `SummaryReport` (in addition to a string or a streaming generator). `audit_model`
   routes on `--format`: structured formats buffer and validate, so `--stream` is ignored (with a

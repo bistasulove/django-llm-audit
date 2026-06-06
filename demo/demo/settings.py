@@ -7,6 +7,7 @@ It is excluded from the published PyPI package.
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -78,14 +79,30 @@ USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Pick the provider with ONE env var: LLM_PROVIDER=anthropic (default) or openai
+_LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "anthropic")
+
+_LLM_PROVIDERS = {
+    "anthropic": {
+        "BACKEND": "llm_audit.backends.anthropic.AnthropicBackend",
+        "API_KEY": os.environ.get("ANTHROPIC_API_KEY", ""),
+        "MODEL": os.environ.get("ANTHROPIC_LLM_MODEL", "claude-haiku-4-5-20251001"),
+    },
+    "openai": {
+        "BACKEND": "llm_audit.backends.openai.OpenAIBackend",
+        "API_KEY": os.environ.get("OPENAI_API_KEY", ""),
+        "MODEL": os.environ.get("OPENAI_LLM_MODEL", "gpt-4o-mini"),
+    },
+}
+
+if _LLM_PROVIDER not in _LLM_PROVIDERS:
+    raise ImproperlyConfigured(
+        f"Unknown LLM_PROVIDER '{_LLM_PROVIDER}'. Choose one of: {', '.join(_LLM_PROVIDERS)}."
+    )
+
 # django-llm-audit configuration.
 LLM_AUDIT = {
-    "BACKEND": "llm_audit.backends.openai.OpenAIBackend",
-    "API_KEY": os.environ.get("OPENAI_API_KEY", ""),
-    "MODEL": os.environ.get("OPENAI_LLM_MODEL", ""),
-    # "BACKEND": "llm_audit.backends.anthropic.AnthropicBackend",
-    # "API_KEY": os.environ.get("ANTHROPIC_API_KEY", ""),
-    # "MODEL": os.environ.get("ANTHROPIC_LLM_MODEL", ""),
+    **_LLM_PROVIDERS[_LLM_PROVIDER],
     "MAX_TOKENS": 1024,
     "CHUNK_TOKEN_THRESHOLD": 3000,
     "DEFAULT_RECORD_LIMIT": 50,
