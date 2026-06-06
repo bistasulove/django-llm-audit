@@ -7,15 +7,19 @@ Implemented in M1 (raw call), gained streaming in M3, and is refactored to
 
 from collections.abc import Generator
 
+from llm_audit.backends.base import BaseLLMBackend
 from llm_audit.exceptions import LLMBackendError
 
 
-class AnthropicBackend:
+class AnthropicBackend(BaseLLMBackend):
     """A thin wrapper over the Anthropic Messages API.
 
-    In M1 this is a plain class with a single ``complete`` method — no abstraction.
-    M5 refactors it to implement ``BaseLLMBackend`` so the rest of the plugin can
-    depend on the abstraction instead of this concrete SDK.
+    Born in M1 as a plain class with a single ``complete`` method — no abstraction. M5
+    makes it implement :class:`~llm_audit.backends.base.BaseLLMBackend` so the rest of the
+    plugin depends on that interface, not on this concrete SDK. Notably, the method bodies
+    did not change: the contract was reverse-engineered from code that has worked since M1,
+    which is exactly how it should be — the abstraction describes reality, it doesn't
+    reshape it.
     """
 
     def __init__(self, api_key: str, model: str, max_tokens: int):

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **M5 — Pluggable LLM backends**
+  - `BaseLLMBackend` (`backends/base.py`) is now the formal interface every backend
+    implements — `complete(prompt, system=...)` and `stream(prompt, system=...)`, plus a
+    concrete `count_tokens` default (the `len // 4` heuristic; override for exact counts).
+    The summarizer and command depend on this abstraction, never on a provider SDK
+    (Dependency Inversion).
+  - `get_backend()` (`backends/__init__.py`) — a factory that resolves the configured
+    dotted path to a backend class via Django's `import_string` and instantiates it with
+    standard `api_key`/`model`/`max_tokens` kwargs. Selection precedence: `--backend`
+    override → `LLM_AUDIT["BACKEND"]` → default. A bad path raises `ImproperlyConfigured`.
+  - `--backend <dotted.path>` is now honored — override the configured backend for one run.
+  - `OpenAIBackend` (`backends/openai.py`) — full `complete()` + `stream()` over the OpenAI
+    Chat Completions API. Carries the system prompt *inside* the `messages` array (vs.
+    Anthropic's top-level `system`), proving the abstraction holds across two real providers.
+    Lazy `openai` import; errors wrapped as `LLMBackendError`.
+  - `MockBackend` (`backends/mock.py`) — a deterministic, offline backend that needs no API
+    key. Returns prose for the free-text path and a schema-valid `ReportBody` JSON for the
+    structured path (detected via the system prompt). Ships in the package so downstream
+    users can point their test settings at it; `mock_backend` pytest fixture added.
+  - `conf.py` DEFAULTS gained `BACKEND` (default Anthropic) and `API_KEY` (default `None`),
+    so the plugin imports and `MockBackend` runs with zero configuration.
+  - Backend tests (`test_backends.py`): interface conformance, the factory's
+    resolution/override/bad-path behaviour, `MockBackend`'s output shapes, and missing-key
+    rejection by the real backends.
+
 - **M4 — Structured output with Pydantic**
   - `--format json` and `--format markdown` switch `audit_model` to a *structured* path:
     the LLM is asked to return JSON, which is validated into a `SummaryReport` and then
@@ -80,6 +105,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **M5** — `audit_model` no longer names a concrete backend: it calls `get_backend()` instead
+  of constructing `AnthropicBackend` directly. `AnthropicBackend` now inherits
+  `BaseLLMBackend` (its method bodies were unchanged — the interface was reverse-engineered
+  from code that had worked since M1). The `BaseLLMBackend` ABC signatures were finalized to
+  include the `system` argument the summarizer already passes.
 - **M4** — `summarizer.summarize()` gained `structured` and `max_retries` parameters and can
   now return a `SummaryReport` (in addition to a string or a streaming generator). `audit_model`
   routes on `--format`: structured formats buffer and validate, so `--stream` is ignored (with a

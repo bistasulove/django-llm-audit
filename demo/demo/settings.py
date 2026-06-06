@@ -80,9 +80,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # django-llm-audit configuration.
 LLM_AUDIT = {
-    "BACKEND": "llm_audit.backends.anthropic.AnthropicBackend",
-    "API_KEY": os.environ.get("ANTHROPIC_API_KEY", ""),
-    "MODEL": "claude-haiku-4-5-20251001",
+    "BACKEND": "llm_audit.backends.openai.OpenAIBackend",
+    "API_KEY": os.environ.get("OPENAI_API_KEY", ""),
+    "MODEL": os.environ.get("OPENAI_LLM_MODEL", ""),
+    # "BACKEND": "llm_audit.backends.anthropic.AnthropicBackend",
+    # "API_KEY": os.environ.get("ANTHROPIC_API_KEY", ""),
+    # "MODEL": os.environ.get("ANTHROPIC_LLM_MODEL", ""),
     "MAX_TOKENS": 1024,
     "CHUNK_TOKEN_THRESHOLD": 3000,
     "DEFAULT_RECORD_LIMIT": 50,

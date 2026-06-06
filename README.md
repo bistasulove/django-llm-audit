@@ -11,18 +11,19 @@
 Django model and returns intelligent summaries, trend analysis, and anomaly reports —
 entirely from the terminal via a management command.
 
-> **Status:** 🚧 Early development — milestone **M4 (structured output)** is functional.
-> The `audit_model` command produces a real summary today via the Anthropic backend,
-> handles large datasets by chunking them and summarizing map-reduce style, can stream the
-> report token-by-token with `--stream`, and can emit a validated structured report as JSON
-> or Markdown with `--format`. The full documentation lands in milestone M7. See
+> **Status:** 🚧 Early development — milestone **M5 (pluggable backends)** is functional.
+> The `audit_model` command produces a real summary today, handles large datasets by
+> chunking them and summarizing map-reduce style, can stream the report token-by-token with
+> `--stream`, can emit a validated structured report as JSON or Markdown with `--format`, and
+> runs against any configured LLM backend (Anthropic or OpenAI built in, swappable via
+> settings or `--backend`). The full documentation lands in milestone M7. See
 > [`CLAUDE.md`](CLAUDE.md) for the roadmap and [`CHANGELOG.md`](CHANGELOG.md) for what has
 > shipped.
 
 ## Why
 
 - Zero migrations, zero models, zero coupling to your code — it only *reads* your data.
-- Provider-agnostic by design: pluggable LLM backends _(Anthropic today; OpenAI and others land in M5)_.
+- Provider-agnostic by design: pluggable LLM backends (Anthropic and OpenAI built in; write your own).
 - Token-aware: chunks large datasets so they fit the model's context window, then summarizes map-reduce style.
 - Structured output: get a validated JSON or Markdown report (Pydantic-checked), not just free text.
 
@@ -60,7 +61,7 @@ python manage.py audit_model --app store --model Order --format json
 python manage.py audit_model --app store --model Order --format markdown --output report.md
 ```
 
-## What works today (M4)
+## What works today (M5)
 
 The command resolves a model, serializes up to `--limit` records to JSON, splits them into
 token-safe chunks, and summarizes them. Datasets that exceed `CHUNK_TOKEN_THRESHOLD` are
@@ -88,9 +89,8 @@ Output comes in two shapes:
 | `--stream` | ✅ honored for `--format text`; ignored (with a warning) for structured formats |
 | `--format` | ✅ honored — `text` (default), `json`, `markdown` |
 | `--output` | ✅ honored — writes the rendered report to a file |
-| `--fields`, `--filter`, `--backend` | ⏳ parsed but not yet wired (later milestones) |
-
-Not yet implemented: non-Anthropic backends (M5).
+| `--backend` | ✅ honored — dotted path overriding `LLM_AUDIT["BACKEND"]` for one run |
+| `--fields`, `--filter` | ⏳ parsed but not yet wired (later milestones) |
 
 ## Configuration
 
@@ -99,12 +99,60 @@ settings accessor with these defaults:
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `BACKEND` | _(required)_ | Dotted path to the LLM backend class. |
-| `API_KEY` | _(required)_ | Your provider API key. |
+| `BACKEND` | `llm_audit.backends.anthropic.AnthropicBackend` | Dotted path to the LLM backend class. |
+| `API_KEY` | `None` | Your provider API key. Required by the real backends; `MockBackend` ignores it. |
 | `MODEL` | `claude-haiku-4-5-20251001` | LLM model id. |
 | `MAX_TOKENS` | `1024` | Max tokens in the LLM response. |
 | `CHUNK_TOKEN_THRESHOLD` | `3000` | Max estimated tokens of records JSON per chunk. |
 | `DEFAULT_RECORD_LIMIT` | `50` | Default `--limit` when not specified. |
+
+## Backends
+
+Every LLM call goes through a backend implementing `BaseLLMBackend`. The plugin depends on
+that abstraction, never on a provider SDK, so switching providers is a settings change — not
+a code change. You pick one with `LLM_AUDIT["BACKEND"]` (a dotted path), and override it for
+a single run with `--backend`.
+
+| Backend | Dotted path | Install |
+|---------|-------------|---------|
+| Anthropic (Claude) | `llm_audit.backends.anthropic.AnthropicBackend` | `pip install django-llm-audit[anthropic]` |
+| OpenAI (GPT) | `llm_audit.backends.openai.OpenAIBackend` | `pip install django-llm-audit[openai]` |
+| Mock (tests/offline) | `llm_audit.backends.mock.MockBackend` | _(built in; no SDK, no API key)_ |
+
+```bash
+# one-off run against OpenAI without changing settings
+python manage.py audit_model --backend llm_audit.backends.openai.OpenAIBackend
+```
+
+`MockBackend` returns deterministic output with no network call and no API key — point your
+test settings at it to exercise the whole pipeline offline:
+
+```python
+LLM_AUDIT = {"BACKEND": "llm_audit.backends.mock.MockBackend"}
+```
+
+### Writing a custom backend
+
+Subclass `BaseLLMBackend` and implement `complete` and `stream` (`count_tokens` has a sane
+default). Construct it with `api_key` / `model` / `max_tokens` keyword arguments — the same
+shape the factory uses for every backend:
+
+```python
+from collections.abc import Generator
+from llm_audit.backends.base import BaseLLMBackend
+
+class MyBackend(BaseLLMBackend):
+    def __init__(self, api_key, model, max_tokens):
+        ...
+
+    def complete(self, prompt: str, system: str | None = None) -> str:
+        ...
+
+    def stream(self, prompt: str, system: str | None = None) -> Generator[str, None, None]:
+        yield ...
+```
+
+Then point settings at it: `LLM_AUDIT["BACKEND"] = "myapp.backends.MyBackend"`.
 
 ## Development
 

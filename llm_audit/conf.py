@@ -10,6 +10,14 @@ from django.conf import settings
 
 #: Default values applied when a key is absent from ``settings.LLM_AUDIT``.
 DEFAULTS = {
+    # Dotted path to the backend class. Resolved at runtime via import_string in
+    # ``llm_audit.backends.get_backend`` — the same string-to-class indirection Django uses
+    # for EMAIL_BACKEND / CACHES / STORAGES. Override per-run with ``--backend``.
+    "BACKEND": "llm_audit.backends.anthropic.AnthropicBackend",
+    # No key by default, so the plugin imports and the factory runs with zero config (the
+    # MockBackend needs none). Each backend decides whether a key is required: AnthropicBackend
+    # raises a clear error when it is missing; MockBackend never looks at it.
+    "API_KEY": None,
     "MODEL": "claude-haiku-4-5-20251001",
     "MAX_TOKENS": 1024,
     "CHUNK_TOKEN_THRESHOLD": 3000,

@@ -17,15 +17,20 @@ LLM returns JSON, validated into a :class:`~llm_audit.schemas.report.SummaryRepo
 rendered. Structured output must be buffered to validate, so ``--stream`` is ignored there.
 ``--output`` writes the rendered report to a file instead of stdout.
 
-Still deferred: backend abstraction (M5). The ``--fields``, ``--filter``, and ``--backend``
-flags are parsed but not yet honored.
+M5 wires the backend abstraction: the command no longer names a concrete backend. It calls
+``get_backend(--backend)``, which resolves ``LLM_AUDIT['BACKEND']`` (or the ``--backend``
+override) to a class and instantiates it. Swapping Anthropic for OpenAI is now a settings
+change, not a code change.
+
+Still deferred: the ``--fields`` and ``--filter`` flags are parsed but not yet honored.
 """
 
 from django.apps import apps
+from django.core.exceptions import ImproperlyConfigured
 from django.core.management.base import BaseCommand, CommandError
 
 from llm_audit import formatters, summarizer
-from llm_audit.backends.anthropic import AnthropicBackend
+from llm_audit.backends import get_backend
 from llm_audit.chunker import estimate_tokens
 from llm_audit.conf import audit_settings
 from llm_audit.exceptions import LLMBackendError, StructuredOutputError
@@ -120,11 +125,9 @@ class Command(BaseCommand):
         # failures (StructuredOutputError) surface during summarize(). Either can fail after
         # we've started, so both must be guarded here.
         try:
-            backend = AnthropicBackend(
-                api_key=audit_settings.API_KEY,
-                model=audit_settings.MODEL,
-                max_tokens=audit_settings.MAX_TOKENS,
-            )
+            # Resolve the configured backend (or the --backend override) to an instance. The
+            # command never names a provider — that is the whole point of M5's abstraction.
+            backend = get_backend(options["backend"])
             result = summarizer.summarize(
                 records,
                 model_name=model.__name__,
@@ -147,7 +150,7 @@ class Command(BaseCommand):
                 self._emit("".join(result), output_path)
             else:
                 self._emit(result, output_path)
-        except (LLMBackendError, StructuredOutputError) as exc:
+        except (LLMBackendError, StructuredOutputError, ImproperlyConfigured) as exc:
             raise CommandError(str(exc)) from None
 
     def _emit(self, content, output_path):
